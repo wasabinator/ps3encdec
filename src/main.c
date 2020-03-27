@@ -123,17 +123,23 @@ static void parse_args(int argc, char **argv)
 		}
 	}
 
-	// Get positional arguments.
-	if(argc - optind < 2)
-		{
-			printf("[*] Error: incorrect arguments!\n");
-			print_help(argv);
-		}
-		_eid_root_key_file = argv[optind];
-		_file_in = argv[optind + 1];
+	int min_args = is_arcade ? 1: 2;
 
-	if(argc - optind == 3)
-		_file_out = argv[optind + 2];
+	// Get positional arguments.
+	if (argc - optind < min_args)
+	{
+		printf("[*] Error: incorrect arguments!\n");
+		print_help(argv);
+	}
+
+	if (!is_arcade) {
+		_eid_root_key_file = argv[optind++];
+	}
+
+	_file_in = argv[optind++];
+
+	if (argc - optind == 1)
+		_file_out = argv[optind];
 	else
 		_file_out = "out.bin";
 }
@@ -352,30 +358,7 @@ int main(int argc, char **argv)
 	//Parse them.
 	parse_args(argc, argv);
 	
-	//Check eid_root_key_file.
-	FILE* eid_root_key_file = fopen(_eid_root_key_file, "rb");
-	if (eid_root_key_file == NULL)
-	{
-		printf("[*] Error: could not read eid_root_key_file!\n");
-		return -1;
-	}
-	else
-	{
-		_fseeki64(eid_root_key_file, 0, SEEK_END);
-		u64 eid_root_key_file_size = _ftelli64(eid_root_key_file);
-
-		fclose(eid_root_key_file);
-		
-		if (eid_root_key_file_size != 0x30)
-		{
-			printf("[*] Error: incorrect eid_root_key_file size!\n");
-			return -1;
-		}
-	}
-	
-	
 	//Setup vars.
-	u8 *eid_root_key = _read_buffer(_eid_root_key_file, NULL);
 	u8 ata_k1[0x20], ata_k2[0x20], edec_k1[0x20], edec_k2[0x20];
 	memset(ata_k1, 0, 0x20);
 	memset(ata_k2, 0, 0x20);
@@ -390,6 +373,29 @@ int main(int argc, char **argv)
 	}
 	else
 	{
+		u8* eid_root_key = _read_buffer(_eid_root_key_file, NULL);
+
+		//Check eid_root_key_file.
+		FILE* eid_root_key_file = fopen(_eid_root_key_file, "rb");
+		if (eid_root_key_file == NULL)
+		{
+			printf("[*] Error: could not read eid_root_key_file!\n");
+			return -1;
+		}
+		else
+		{
+			_fseeki64(eid_root_key_file, 0, SEEK_END);
+			u64 eid_root_key_file_size = _ftelli64(eid_root_key_file);
+
+			fclose(eid_root_key_file);
+
+			if (eid_root_key_file_size != 0x30)
+			{
+				printf("[*] Error: incorrect eid_root_key_file size!\n");
+				return -1;
+			}
+		}
+
 		generate_ata_keys(eid_root_key, eid_root_key + 0x20, ata_data_seed, ata_tweak_seed, ata_k1, ata_k2);
 		generate_encdec_keys(eid_root_key, eid_root_key + 0x20, encdec_data_seed, encdec_tweak_seed, edec_k1, edec_k2);
 	}
