@@ -8,10 +8,11 @@
 #include <stdlib.h>
 
 #include "util.h"
-#include "kgen.h"
-#include "aes_xts.h"
-#include "keys.h"
+//#include "../../ps3encdeclib/src/aes_xts.h"
 #include <time.h>
+#include "../../ps3encdeclib/src/keys.h"
+#include "../../ps3encdeclib/src/kgen.h"
+#include "../../ps3encdeclib/src/sector.h"
 
 #ifdef _WIN32
 #include <io.h>
@@ -144,23 +145,11 @@ static void parse_args(int argc, char **argv)
 		_file_out = "out.bin";
 }
 
-/*! Swap u16 endianness. */
-static void _es16_buffer(u8 *buf, u32 length)
-{
-	u16 *ptr = (u16 *)buf;
-	u32 i;
-
-	for(i = 0; i < length/2; i++)
-		ptr[i] = _ES16(ptr[i]);
-}
-
 /*! Decrypt sectors. */
 void decrypt_all_sectors(const s8 *out_file, const s8 *in_file, u64 start_sector, u64 num_sectors, u8 *ata_k1, u8 *ata_k2, u8 *edec_k1, u8 *edec_k2, BOOL is_phat, BOOL is_vflash)
 {
 	FILE *in;
 	FILE *out;
-	aes_xts_ctxt_t xts_ctxt;
-	aes_context aes_ctxt;
 	u64 i;
 	u64 chunk_size;
 	u64 position = 0;
@@ -184,58 +173,13 @@ void decrypt_all_sectors(const s8 *out_file, const s8 *in_file, u64 start_sector
 		fclose(in);
 		
 		//Decrypt buffer.
+		u8* sector;
+		u64 sector_index;
 		for(i = 0; i < (chunk_size / SECTOR_SIZE); i++)
 		{
-			//Decrypt sector.
-			if (is_vflash == TRUE)
-			{
-				if (is_phat == TRUE)
-				{
-					//Set key for AES-CBC
-					aes_setkey_dec(&aes_ctxt, edec_k1, 128);
-					//Decrypt CBC sector.
-					memset(zero_iv, 0, 0x10);
-					aes_crypt_cbc(&aes_ctxt, AES_DECRYPT, SECTOR_SIZE, zero_iv, (buffer + (SECTOR_SIZE * i)), buffer + (SECTOR_SIZE * i));
-					//XOR initial block in sector with sector index value.
-					buffer[(SECTOR_SIZE * i)+0x8] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 56 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0x9] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 48 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0xA] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 40 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0xB] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 32 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0xC] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 24 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0xD] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 16 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0xE] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 8 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0xF] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) & 0xFF);
-				}
-				else
-				{
-					//Init AES-XTS context.
-					aes_xts_init(&xts_ctxt, AES_DECRYPT, edec_k1, edec_k2, 128);
-					//Decrypt XTS sector.
-					aes_xts_crypt(&xts_ctxt, (u64)((position / SECTOR_SIZE) + i + start_sector), SECTOR_SIZE, (buffer + (SECTOR_SIZE * i)), buffer + (SECTOR_SIZE * i));
-				}
-			}
-			else
-			{
-				if (is_phat == TRUE)
-				{
-					//Swap endian for ata only.				
-					_es16_buffer(buffer + (SECTOR_SIZE * i), SECTOR_SIZE);
-					//Set key for AES-CBC
-					aes_setkey_dec(&aes_ctxt, ata_k1, 192);
-					//Decrypt CBC sector.
-					memset(zero_iv, 0, 0x10);
-					aes_crypt_cbc(&aes_ctxt, AES_DECRYPT, SECTOR_SIZE, zero_iv, (buffer + (SECTOR_SIZE * i)), buffer + (SECTOR_SIZE * i));
-				}
-				else
-				{
-					//Swap endian for ata only.
-					_es16_buffer(buffer + (SECTOR_SIZE * i), SECTOR_SIZE);
-					//Init AES-XTS context.
-					aes_xts_init(&xts_ctxt, AES_DECRYPT, ata_k1, ata_k2, 128);
-					//Decrypt XTS sector.
-					aes_xts_crypt(&xts_ctxt, (u64)((position / SECTOR_SIZE) + i + start_sector), SECTOR_SIZE, (buffer + (SECTOR_SIZE * i)), buffer + (SECTOR_SIZE * i));
-				}
-			}
+			sector = buffer + (SECTOR_SIZE * i);
+			sector_index = (u64)((position / SECTOR_SIZE) + start_sector + i);
+			decrypt_sector(sector, sector_index, SECTOR_SIZE, zero_iv, ata_k1, ata_k2, edec_k1, edec_k2, is_phat, is_vflash);
 		}
 
 		//Write buffer to file
@@ -255,8 +199,6 @@ void encrypt_all_sectors(const s8 *out_file, const s8 *in_file, u64 start_sector
 {
 	FILE *in;
 	FILE *out;
-	aes_xts_ctxt_t xts_ctxt;
-	aes_context aes_ctxt;
 	u64 i;
 	u64 chunk_size;
 	u64 position = 0;
@@ -280,58 +222,13 @@ void encrypt_all_sectors(const s8 *out_file, const s8 *in_file, u64 start_sector
 		fclose(in);
 		
 		//Encrypt buffer.
+		u8* sector;
+		u64 sector_index;
 		for(i = 0; i < (chunk_size / SECTOR_SIZE); i++)
 		{
-			//Encrypt sector.
-			if (is_vflash == TRUE)
-			{
-				if (is_phat == TRUE)
-				{
-					//XOR initial block in sector with sector index value.
-					buffer[(SECTOR_SIZE * i)+0x8] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 56 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0x9] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 48 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0xA] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 40 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0xB] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 32 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0xC] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 24 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0xD] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 16 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0xE] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) >> 8 & 0xFF);
-					buffer[(SECTOR_SIZE * i)+0xF] ^= ((u64)((position / SECTOR_SIZE)+start_sector + i) & 0xFF);
-					//Set key for AES-CBC
-					aes_setkey_enc(&aes_ctxt, edec_k1, 128);
-					//Encrypt CBC sector.
-					memset(zero_iv, 0, 0x10);
-					aes_crypt_cbc(&aes_ctxt, AES_ENCRYPT, SECTOR_SIZE, zero_iv, (buffer + (SECTOR_SIZE * i)), buffer + (SECTOR_SIZE * i));
-				}
-				else
-				{
-					//Init AES-XTS context.
-					aes_xts_init(&xts_ctxt, AES_ENCRYPT, edec_k1, edec_k2, 128);
-					//Encrypt XTS sector.
-					aes_xts_crypt(&xts_ctxt, (u64)((position / SECTOR_SIZE) + i + start_sector), SECTOR_SIZE, (buffer + (SECTOR_SIZE * i)), buffer + (SECTOR_SIZE * i));
-				}
-			}
-			else
-			{
-				if (is_phat == TRUE)
-				{
-					//Set key for AES-CBC
-					aes_setkey_enc(&aes_ctxt, ata_k1, 192);
-					//Encrypt CBC sector.
-					memset(zero_iv, 0, 0x10);
-					aes_crypt_cbc(&aes_ctxt, AES_ENCRYPT, SECTOR_SIZE, zero_iv, (buffer + (SECTOR_SIZE * i)), buffer + (SECTOR_SIZE * i));
-					//Swap endian for ata only.				
-					_es16_buffer(buffer + (SECTOR_SIZE * i), SECTOR_SIZE);
-				}
-				else
-				{
-					//Init AES-XTS context.
-					aes_xts_init(&xts_ctxt, AES_ENCRYPT, ata_k1, ata_k2, 128);
-					//Encrypt XTS sector.
-					aes_xts_crypt(&xts_ctxt, (u64)((position / SECTOR_SIZE) + i + start_sector), SECTOR_SIZE, (buffer + (SECTOR_SIZE * i)), buffer + (SECTOR_SIZE * i));
-					//Swap endian for ata only.
-					_es16_buffer(buffer + (SECTOR_SIZE * i), SECTOR_SIZE);
-				}
-			}
+			sector = buffer + (SECTOR_SIZE * i);
+			sector_index = (u64)((position / SECTOR_SIZE) + start_sector + i);
+			encrypt_sector(sector, sector_index, SECTOR_SIZE, zero_iv, ata_k1, ata_k2, edec_k1, edec_k2, is_phat, is_vflash);
 		}
 
 		//Write buffer to file

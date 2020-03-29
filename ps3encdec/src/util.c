@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-#include "types.h"
+#include "../../ps3encdeclib/src/types.h"
 #include "util.h"
 
 void _hexdump(FILE *fp, const char *name, u32 offset, u8 *buf, int len, BOOL print_addr)

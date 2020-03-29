@@ -8,7 +8,7 @@
 
 #include <stdio.h>
 
-#include "types.h"
+#include "../../ps3encdeclib/src/types.h"
 
 /*! Utility functions. */
 void _hexdump(FILE *fp, const char *name, u32 offset, u8 *buf, int len, BOOL print_addr);
